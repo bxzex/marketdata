@@ -12,8 +12,6 @@ interface Message {
   data?: SymbolData[];
 }
 
-export default function App() {
-  const [input, setInput] = useState('');
 // The API Key is handled internally for a seamless experience
 const INTERNAL_KEY = "PjSzxXD2Nymd4enxdTjnqw4wRQlV3LDc";
 
