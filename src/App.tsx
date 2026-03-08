@@ -32,7 +32,7 @@ interface Message {
 }
 
 const INTERNAL_KEY = "PjSzxXD2Nymd4enxdTjnqw4wRQlV3LDc";
-const BASE_URL = "https://financialmodelingprep.com/api/v3";
+const BASE_URL = "https://financialmodelingprep.com/stable";
 
 export default function App() {
   const [input, setInput] = useState('');
@@ -60,38 +60,38 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      let endpoint = `/quote/${query}`;
+      // Use the modern /stable endpoints
+      let endpoint = `/quote?symbol=${query}`;
       let isSearch = false;
 
-      // Logic to determine if it's a search or a direct quote
-      if (query.length > 5 || query.includes(' ') || query === 'ETF' || query === 'CRYPTO') {
-        endpoint = `/search?query=${query}&limit=10`;
+      // Smart routing: if it's long or has spaces, use search
+      if (query.length > 5 || query.includes(' ') || query === 'ETF') {
+        endpoint = `/search-symbol?query=${query}`;
         isSearch = true;
       }
 
-      const response = await fetch(`${BASE_URL}${endpoint}${endpoint.includes('?') ? '&' : '?'}apikey=${INTERNAL_KEY}`);
+      const response = await fetch(`${BASE_URL}${endpoint}&apikey=${INTERNAL_KEY}`);
       if (!response.ok) throw new Error('Network response was not ok');
       
       const rawData = await response.json();
       let displayData: MarketData[] = [];
 
       if (isSearch) {
-        // Search returns a list, we might want to fetch quotes for these but let's just show them for now
-        displayData = rawData.map((item: any) => ({
+        displayData = (rawData || []).map((item: any) => ({
           symbol: item.symbol,
           name: item.name,
           exchange: item.stockExchange
         }));
       } else {
-        // Quote returns an array with one object
-        displayData = Array.isArray(rawData) ? rawData : [rawData];
+        // /stable/quote returns an array of objects
+        displayData = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : []);
       }
 
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: displayData.length > 0 
-          ? `Results for ${query}:` 
-          : `No data found for "${query}".`,
+          ? `Found data for ${query}:` 
+          : `No results found for "${query}".`,
         data: displayData 
       }]);
 
