@@ -210,7 +210,7 @@ export default function App() {
           
           <div className="mt-8 flex flex-col items-center gap-4">
             <div className="text-[10px] text-zinc-600 font-medium tracking-widest uppercase">
-              developed by bxzex
+              developed by <a href="https://bxzex.com" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400 transition-colors">bxzex</a>
             </div>
             <div className="flex gap-8">
               <a href="https://github.com/bxzex" target="_blank" rel="noopener noreferrer" className="text-zinc-600 hover:text-emerald-400 text-xs font-medium transition-colors">
