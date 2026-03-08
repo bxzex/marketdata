@@ -37,7 +37,7 @@ const BASE_URL = "https://financialmodelingprep.com/stable";
 export default function App() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'Welcome to the Market Data terminal. Search for any stock symbol (AAPL), ETF, or international market data.' }
+    { role: 'assistant', content: 'Welcome to Market Data. Search for any stock symbol (AAPL), ETF, or international market data.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
