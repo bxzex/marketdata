@@ -14,10 +14,14 @@ interface Message {
 
 export default function App() {
   const [input, setInput] = useState('');
+// The API Key is handled internally for a seamless experience
+const INTERNAL_KEY = "PjSzxXD2Nymd4enxdTjnqw4wRQlV3LDc";
+
+export default function App() {
+  const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'Welcome to the Market Data terminal. Please enter your Financial Data API Key at the top to begin searching symbols.' }
+    { role: 'assistant', content: 'Welcome to the Market Data terminal. You can search for stock symbols, ETF symbols, or international stocks. What would you like to look up?' }
   ]);
-  const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -32,10 +36,6 @@ export default function App() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    if (!apiKey) {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Please provide an API Key in the field above to continue.' }]);
-      return;
-    }
 
     const userMessage = input.trim();
     setInput('');
@@ -52,7 +52,7 @@ export default function App() {
         endpoint = 'international-stock-symbols';
       }
 
-      const response = await fetch(`https://financialdata.net/api/v1/${endpoint}?format=json&key=${apiKey}`);
+      const response = await fetch(`https://financialdata.net/api/v1/${endpoint}?format=json&key=${INTERNAL_KEY}`);
       
       if (!response.ok) throw new Error('Failed to fetch data');
       
@@ -61,13 +61,13 @@ export default function App() {
 
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: `Here are some ${endpoint.replace('-', ' ')} matches:`,
+        content: `Found ${filtered.length} matches for "${userMessage}":`,
         data: filtered 
       }]);
     } catch (error) {
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: 'Error: Make sure your API key is valid and you have an active subscription.' 
+        content: 'I encountered an error while fetching the latest market data. Please try again in a moment.' 
       }]);
     } finally {
       setIsLoading(false);
@@ -77,18 +77,14 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen bg-[#212121] text-[#ececec]">
       {/* Header */}
-      <header className="p-4 border-b border-white/10 flex flex-col md:flex-row justify-between items-center bg-[#212121] gap-4">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-semibold">Market Data</h1>
-          <div className="text-[10px] px-2 py-0.5 border border-zinc-700 rounded text-zinc-500 font-mono uppercase tracking-widest">bxzex terminal</div>
+      <header className="p-4 border-b border-white/10 flex justify-between items-center bg-[#212121]">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+            <div className="w-4 h-4 rounded-sm border-2 border-white/20"></div>
+          </div>
+          <h1 className="text-lg font-medium tracking-tight">Market Terminal</h1>
         </div>
-        <input 
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="Enter FinancialData API Key..."
-          className="text-xs bg-[#2f2f2f] border border-white/5 rounded-lg px-3 py-2 w-full md:w-64 focus:outline-none focus:border-white/20"
-        />
+        <div className="text-[10px] px-2 py-0.5 border border-zinc-800 rounded text-zinc-600 font-mono uppercase tracking-widest">bxzex-v1</div>
       </header>
 
       {/* Chat Area */}
