@@ -113,9 +113,8 @@ export default function App() {
           <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
             <div className="w-4 h-4 rounded-sm border-2 border-emerald-500/50"></div>
           </div>
-          <h1 className="text-lg font-medium tracking-tight">FMP Terminal</h1>
+          <h1 className="text-lg font-medium tracking-tight">Market Data</h1>
         </div>
-        <div className="text-[10px] px-2 py-0.5 border border-zinc-800 rounded text-zinc-600 font-mono uppercase tracking-widest">bxzex-v2</div>
       </header>
 
       {/* Chat Area */}
