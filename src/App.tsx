@@ -4,7 +4,7 @@ interface MarketData {
   symbol: string;
   name?: string;
   price?: number;
-  changesPercentage?: number;
+  changePercentage?: number;
   change?: number;
   dayLow?: number;
   dayHigh?: number;
@@ -33,205 +33,237 @@ interface Message {
 
 const INTERNAL_KEY = "PjSzxXD2Nymd4enxdTjnqw4wRQlV3LDc";
 const BASE_URL = "https://financialmodelingprep.com/stable";
+const COVERED = ['NASDAQ', 'NYSE', 'AMEX', 'CRYPTO', 'FOREX'];
+const QUICK = ['AAPL', 'MSFT', 'NVDA', 'SPY', 'BTCUSD', 'EURUSD'];
+
+const money = (n?: number) => {
+  if (n === undefined || n === null) return 'n/a';
+  const digits = Math.abs(n) < 10 ? 4 : 2;
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: digits });
+};
+
+const compact = (n?: number) => {
+  if (!n) return 'n/a';
+  if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  return n.toLocaleString('en-US');
+};
+
+const asOf = (ts?: number) =>
+  ts ? new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+
+async function getJson(path: string) {
+  const response = await fetch(`${BASE_URL}${path}&apikey=${INTERNAL_KEY}`);
+  const text = await response.text();
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // The API answers with a plain sentence when a symbol is outside the free plan.
+    if (/subscription|premium/i.test(text)) throw new Error('plan');
+    throw new Error('network');
+  }
+}
 
 export default function App() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'Welcome to Market Data. Search for any stock symbol (AAPL), ETF, or international market data.' }
+    { role: 'assistant', content: 'Type a ticker (AAPL, SPY, BTCUSD) for a quote, or a company name to look up its symbol.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (messages.length > 1) messagesEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages, isLoading]);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const query = input.trim().toUpperCase();
-    if (!query || isLoading) return;
+  const lookup = async (raw: string) => {
+    const typed = raw.trim();
+    if (!typed || isLoading) return;
+    const query = typed.toUpperCase();
 
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: query }]);
+    setMessages(prev => [...prev, { role: 'user', content: typed }]);
     setIsLoading(true);
 
     try {
-      // Use the modern /stable endpoints
-      let endpoint = `/quote?symbol=${query}`;
-      let isSearch = false;
-
-      // Smart routing: if it's long or has spaces, use search
-      if (query.length > 5 || query.includes(' ') || query === 'ETF') {
-        endpoint = `/search-symbol?query=${query}`;
-        isSearch = true;
+      const looksLikeTicker = /^[A-Z0-9.\-^=]{1,10}$/.test(query);
+      let quotes: MarketData[] = [];
+      let planLocked = false;
+      if (looksLikeTicker) {
+        try {
+          quotes = await getJson(`/quote?symbol=${encodeURIComponent(query)}`);
+        } catch (err) {
+          if ((err as Error).message !== 'plan') throw err;
+          planLocked = true;
+        }
       }
 
-      const response = await fetch(`${BASE_URL}${endpoint}&apikey=${INTERNAL_KEY}`);
-      if (!response.ok) throw new Error('Network response was not ok');
-      
-      const rawData = await response.json();
-      let displayData: MarketData[] = [];
-
-      if (isSearch) {
-        displayData = (rawData || []).map((item: any) => ({
+      if (quotes.length > 0) {
+        setMessages(prev => [...prev, { role: 'assistant', content: '', data: quotes }]);
+      } else {
+        const found = await getJson(`/search-name?query=${encodeURIComponent(typed)}&limit=30`);
+        // The plan behind this page only quotes US listings, crypto and forex, so list those.
+        const quotable = found.filter((item: any) => COVERED.includes(item.exchange));
+        const matches: MarketData[] = quotable.map((item: any) => ({
           symbol: item.symbol,
           name: item.name,
-          exchange: item.stockExchange
+          exchange: item.exchange
         }));
-      } else {
-        // /stable/quote returns an array of objects
-        displayData = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : []);
+        if (planLocked && matches.length === 0) throw new Error('plan');
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: matches.length > 0
+            ? `No quote for "${typed}". Symbols with a matching name:`
+            : `Nothing found for "${typed}". Check the spelling or try the ticker.`,
+          data: matches
+        }]);
       }
-
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: displayData.length > 0 
-          ? `Found data for ${query}:` 
-          : `No results found for "${query}".`,
-        data: displayData 
-      }]);
-
     } catch (error) {
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Failed to retrieve data. Please check the symbol or try again later.' 
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: (error as Error).message === 'plan'
+          ? `No quote available for ${query}. This page covers US stocks and ETFs, major crypto and forex pairs.`
+          : 'Could not reach the data service. Check your connection and try again.'
       }]);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    lookup(input);
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-[#212121] text-[#ececec] font-sans">
-      {/* Header */}
-      <header className="p-4 border-b border-white/10 flex justify-between items-center bg-[#212121] sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-            <div className="w-4 h-4 rounded-sm border-2 border-emerald-500/50"></div>
-          </div>
-          <h1 className="text-lg font-medium tracking-tight">Market Data</h1>
+    <div className="flex flex-col h-[100dvh] bg-[#0d1014] text-[#d7dde3]">
+      <header className="px-4 py-3 border-b border-[#232a32] flex flex-wrap justify-between items-center gap-x-6 gap-y-2">
+        <h1 className="text-[15px] font-semibold text-white">Market Data</h1>
+        <div className="flex flex-wrap items-center gap-1 text-[13px]">
+          <span className="text-[#8b98a5] mr-1">Quick quote</span>
+          {QUICK.map(sym => (
+            <button
+              key={sym}
+              type="button"
+              onClick={() => lookup(sym)}
+              disabled={isLoading}
+              className="num px-2 py-1 rounded text-[#7cc0ff] hover:bg-[#18222d] hover:text-white disabled:text-[#5b6875]"
+            >
+              {sym}
+            </button>
+          ))}
         </div>
       </header>
 
-      {/* Chat Area */}
-      <main className="flex-1 overflow-y-auto px-4 py-8">
-        <div className="max-w-3xl mx-auto space-y-8">
+      <main className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="max-w-3xl mx-auto space-y-5">
           {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[90%] rounded-2xl ${
-                m.role === 'user' 
-                  ? 'bg-[#2f2f2f] px-4 py-2 text-white border border-white/5' 
-                  : 'bg-transparent text-[#ececec]'
-              }`}>
-                {m.role === 'assistant' && (
-                  <div className="text-[11px] font-bold mb-2 text-emerald-500 uppercase tracking-tighter">System</div>
-                )}
-                <div className="text-[15px] leading-relaxed whitespace-pre-wrap">
-                  {m.content}
-                </div>
-                {m.data && m.data.length > 0 && (
-                  <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {m.data.map((item, idx) => (
-                      <div key={idx} className="bg-[#2f2f2f]/50 p-4 rounded-xl border border-white/5 hover:border-emerald-500/30 transition-all group">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <span className="font-bold text-lg text-white group-hover:text-emerald-400 transition-colors">{item.symbol}</span>
-                            <div className="text-[10px] text-zinc-500 font-medium truncate max-w-[140px]">{item.name || 'Company'}</div>
-                          </div>
-                          {item.price !== undefined && (
-                            <div className="text-right">
-                              <div className="font-bold text-white">${item.price.toFixed(2)}</div>
-                              <div className={`text-[10px] font-bold ${(item.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {(item.change || 0) >= 0 ? '+' : ''}{item.change?.toFixed(2)} ({item.changesPercentage?.toFixed(2)}%)
-                              </div>
-                            </div>
-                          )}
+            m.role === 'user' ? (
+              <div key={i} className="num text-[13px] text-[#8b98a5] border-t border-[#232a32] pt-4">
+                <span className="text-[#5f6b77]">&gt; </span>{m.content}
+              </div>
+            ) : (
+              <div key={i}>
+                {m.content && <p className="text-[14px] leading-relaxed m-0">{m.content}</p>}
+                {m.data && m.data.length > 0 && m.data[0].price !== undefined && m.data.map((item, idx) => {
+                  const up = (item.change || 0) >= 0;
+                  return (
+                    <div key={idx} className="mt-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+                        <div>
+                          <span className="num text-xl font-semibold text-white">{item.symbol}</span>
+                          <span className="ml-3 text-[14px] text-[#aab4be]">{item.name}</span>
                         </div>
-                        {item.marketCap && (
-                          <div className="mt-3 pt-3 border-t border-white/5 grid grid-cols-2 gap-2 text-[10px]">
-                            <div>
-                              <div className="text-zinc-500 uppercase">Market Cap</div>
-                              <div className="text-zinc-300 font-medium">${(item.marketCap / 1e9).toFixed(2)}B</div>
-                            </div>
-                            <div>
-                              <div className="text-zinc-500 uppercase">Volume</div>
-                              <div className="text-zinc-300 font-medium">{(item.volume || 0).toLocaleString()}</div>
-                            </div>
-                          </div>
-                        )}
+                        <div className="num">
+                          <span className="text-xl font-semibold text-white">{money(item.price)}</span>
+                          <span className={`ml-3 text-[14px] ${up ? 'text-[#3fcf8e]' : 'text-[#ff6b6b]'}`}>
+                            {up ? '+' : ''}{money(item.change)} ({up ? '+' : ''}{(item.changePercentage ?? 0).toFixed(2)}%)
+                          </span>
+                        </div>
                       </div>
+                      <dl className="num mt-3 grid grid-cols-2 sm:grid-cols-4 gap-x-6 text-[13px] border-t border-[#232a32]">
+                        {[
+                          ['Open', money(item.open)],
+                          ['Prev close', money(item.previousClose)],
+                          ['Day range', `${money(item.dayLow)} to ${money(item.dayHigh)}`],
+                          ['52-week range', `${money(item.yearLow)} to ${money(item.yearHigh)}`],
+                          ['Volume', compact(item.volume)],
+                          ['Market cap', compact(item.marketCap)],
+                          ['50-day avg', money(item.priceAvg50)],
+                          ['200-day avg', money(item.priceAvg200)],
+                        ].map(([label, value]) => (
+                          <div key={label} className="py-2 border-b border-[#1a2027]">
+                            <dt className="font-sans text-[12px] text-[#8b98a5]">{label}</dt>
+                            <dd className="m-0 text-[#e6ebef]">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <p className="mt-2 mb-0 text-[12px] text-[#8b98a5]">
+                        {item.exchange}{item.timestamp ? `, as of ${asOf(item.timestamp)}` : ''}. Prices may be delayed.
+                      </p>
+                    </div>
+                  );
+                })}
+                {m.data && m.data.length > 0 && m.data[0].price === undefined && (
+                  <ul className="mt-2 p-0 list-none border-t border-[#232a32]">
+                    {m.data.slice(0, 8).map((item, idx) => (
+                      <li key={idx} className="border-b border-[#1a2027]">
+                        <button
+                          type="button"
+                          onClick={() => lookup(item.symbol)}
+                          disabled={isLoading}
+                          className="w-full flex items-baseline gap-4 py-2 text-left text-[14px] hover:bg-[#141b22]"
+                        >
+                          <span className="num w-24 shrink-0 text-[#7cc0ff]">{item.symbol}</span>
+                          <span className="flex-1 min-w-0 truncate">{item.name}</span>
+                          <span className="text-[12px] text-[#8b98a5]">{item.exchange}</span>
+                        </button>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 )}
               </div>
-            </div>
+            )
           ))}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-transparent text-[#ececec] py-2">
-                <div className="flex space-x-1.5">
-                  <div className="w-1.5 h-1.5 bg-emerald-500/40 rounded-full animate-bounce"></div>
-                  <div className="w-1.5 h-1.5 bg-emerald-500/40 rounded-full animate-bounce [animation-delay:-.3s]"></div>
-                  <div className="w-1.5 h-1.5 bg-emerald-500/40 rounded-full animate-bounce [animation-delay:-.5s]"></div>
-                </div>
-              </div>
-            </div>
-          )}
+          {isLoading && <p className="text-[14px] text-[#8b98a5] m-0" role="status">Loading…</p>}
           <div ref={messagesEndRef} />
         </div>
       </main>
 
-      {/* Input Area */}
-      <footer className="p-4 md:p-8 bg-[#212121]">
+      <footer className="px-4 pt-3 pb-4 border-t border-[#232a32]">
         <div className="max-w-3xl mx-auto">
-          <form onSubmit={handleSearch} className="relative group">
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <label htmlFor="symbol" className="sr-only">Ticker or company name</label>
             <input
+              id="symbol"
+              name="symbol"
               type="text"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Enter symbol (e.g. BTCUSD, AAPL, MSFT)..."
-              className="w-full bg-[#2f2f2f] border border-white/5 rounded-2xl py-4 pl-6 pr-14 focus:outline-none focus:border-emerald-500/30 text-[#ececec] placeholder-zinc-600 shadow-2xl transition-all"
+              placeholder="Ticker or company name"
+              className="num flex-1 min-w-0 bg-[#141a20] border border-[#2c3540] rounded px-3 py-2.5 text-[16px] text-white placeholder-[#7c8894]"
             />
-            <button 
+            <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-white text-black disabled:opacity-10 hover:bg-emerald-400 hover:text-black transition-all"
+              className="px-4 rounded bg-[#7cc0ff] text-[#06121d] text-[14px] font-semibold hover:bg-[#a5d4ff] disabled:bg-[#232a32] disabled:text-[#7c8894]"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M7 11L12 6L17 11M12 18V7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              Get quote
             </button>
           </form>
-          
-          <div className="mt-8 flex flex-col items-center gap-6">
-            <a 
-              href="https://buy.stripe.com/9B6eVfd9E6OC3sr7cEaAw03" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="px-6 py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] text-emerald-400 transition-all flex items-center gap-3 shadow-2xl shadow-emerald-500/5 group"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="group-hover:scale-110 transition-transform"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-              Support Project
-            </a>
 
-            <div className="text-[10px] text-zinc-600 font-medium tracking-widest uppercase">
-              developed by <a href="https://bxzex.com" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400 transition-colors">bxzex</a>
-            </div>
-            <div className="flex gap-8">
-              <a href="https://github.com/bxzex" target="_blank" rel="noopener noreferrer" className="text-zinc-600 hover:text-emerald-400 text-xs font-medium transition-colors">
-                GITHUB
-              </a>
-              <a href="https://linkedin.com/in/bxzex/" target="_blank" rel="noopener noreferrer" className="text-zinc-600 hover:text-emerald-400 text-xs font-medium transition-colors">
-                LINKEDIN
-              </a>
-              <a href="https://instagram.com/bxzex" target="_blank" rel="noopener noreferrer" className="text-zinc-600 hover:text-emerald-400 text-xs font-medium transition-colors">
-                INSTAGRAM
-              </a>
-            </div>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-[#8b98a5]">
+            <span>© 2026 <a href="https://bxzex.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">bxzex</a></span>
+            <span>Data from Financial Modeling Prep</span>
+            <a href="https://github.com/bxzex/marketdata" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">Source</a>
+            <a href="https://buy.stripe.com/9B6eVfd9E6OC3sr7cEaAw03" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">Support</a>
+            <a href="https://linkedin.com/in/bxzex/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">LinkedIn</a>
+            <a href="https://instagram.com/bxzex" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">Instagram</a>
           </div>
         </div>
       </footer>
