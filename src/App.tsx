@@ -261,7 +261,6 @@ export default function App() {
             <span>© 2026 <a href="https://bxzex.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">bxzex</a></span>
             <span>Data from Financial Modeling Prep</span>
             <a href="https://github.com/bxzex/marketdata" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">Source</a>
-            <a href="https://buy.stripe.com/9B6eVfd9E6OC3sr7cEaAw03" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">Support</a>
             <a href="https://linkedin.com/in/bxzex/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">LinkedIn</a>
             <a href="https://instagram.com/bxzex" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">Instagram</a>
           </div>
